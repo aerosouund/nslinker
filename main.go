@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
 	"os"
 	"strconv"
@@ -13,8 +15,9 @@ import (
 )
 
 type ContainerInfo struct {
-	ID  string
-	PID uint32
+	ID      string
+	PID     uint32
+	PodName string
 }
 
 func getRunningContainers() ([]ContainerInfo, error) {
@@ -42,9 +45,12 @@ func getRunningContainers() ([]ContainerInfo, error) {
 		}
 
 		task, err := container.Task(ctx, cio.NewAttach())
+		podName := getPodNameWithCID(info.ID)
+
 		containerInfos = append(containerInfos, ContainerInfo{
-			ID:  info.ID,
-			PID: task.Pid(),
+			ID:      info.ID,
+			PID:     task.Pid(),
+			PodName: podName,
 		})
 
 		fmt.Printf("Container ID: %s. PID: %d\n", info.ID, task.Pid())
@@ -52,17 +58,45 @@ func getRunningContainers() ([]ContainerInfo, error) {
 	return containerInfos, nil
 }
 
+func getPodNameWithCID(cid string) string {
+	jsonFile, err := ioutil.ReadFile("/var/run/containerd/" + cid + "/config.json")
+	if err != nil {
+		panic(err)
+	}
+
+	var jsonData map[string]interface{}
+	if err := json.Unmarshal(jsonFile, &jsonData); err != nil {
+		panic(err)
+	}
+
+	hostname, ok := jsonData["hostname"].(string)
+	if !ok {
+		fmt.Println("Failed to parse hostname as a string")
+		return ""
+	}
+
+	return hostname
+}
+
 func createSymLinks(cn ContainerInfo) error {
 	pidStr := strconv.Itoa(int(cn.PID))
 	targetPath := "/proc/" + pidStr + "/ns/net"
-	symlinkPath := "/var/run/netns/" + cn.ID
+	symlinkPath := "/var/run/netns/" + cn.PodName
 
-	err := os.Symlink(targetPath, symlinkPath)
-	if err != nil {
-		return nil
+	_, err := os.Stat(targetPath)
+
+	if err == nil {
+		return fmt.Errorf("Already exists")
+	} else if os.IsNotExist(err) {
+		err := os.Symlink(targetPath, symlinkPath)
+		if err != nil {
+			return err
+		}
+	} else {
+		fmt.Printf("Error checking path %s: %v\n", targetPath, err)
 	}
 
-	println("Symlink created:", symlinkPath)
+	fmt.Println("Symlink created:", symlinkPath)
 	return nil
 }
 
