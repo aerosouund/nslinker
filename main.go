@@ -7,12 +7,12 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 	"strconv"
 
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
-	"github.com/vishvananda/netns"
 )
 
 type ContainerInfo struct {
@@ -90,21 +90,16 @@ func createSymLinks(cn ContainerInfo) error {
 		return fmt.Errorf("Already exists")
 	} else if os.IsNotExist(err) {
 
-		targetFile, err := os.Create(symlinkPath)
-		if err != nil {
-			return err
-		}
-		defer targetFile.Close()
+		cmdName := "ln"
+		cmdArgs := []string{"-sfT", targetPath, symlinkPath}
 
-		_, err = netns.NewNamed(symlinkPath)
+		cmd := exec.Command(cmdName, cmdArgs...)
+
+		_, err := cmd.CombinedOutput()
 		if err != nil {
 			return err
 		}
 
-		err = os.Symlink(targetPath, symlinkPath)
-		if err != nil {
-			return err
-		}
 	} else {
 		fmt.Printf("Error checking path %s: %v\n", symlinkPath, err)
 	}
