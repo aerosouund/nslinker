@@ -12,6 +12,7 @@ import (
 	"github.com/containerd/containerd"
 	"github.com/containerd/containerd/cio"
 	"github.com/containerd/containerd/namespaces"
+	"github.com/vishvananda/netns"
 )
 
 type ContainerInfo struct {
@@ -59,7 +60,7 @@ func getRunningContainers() ([]ContainerInfo, error) {
 }
 
 func getPodNameWithCID(cid string) string {
-	jsonFile, err := ioutil.ReadFile("/var/run/containerd/" + cid + "/config.json")
+	jsonFile, err := ioutil.ReadFile("/var/run/containerd/io.containerd.runtime.v2.task/moby/" + cid + "/config.json")
 	if err != nil {
 		panic(err)
 	}
@@ -83,17 +84,29 @@ func createSymLinks(cn ContainerInfo) error {
 	targetPath := "/proc/" + pidStr + "/ns/net"
 	symlinkPath := "/var/run/netns/" + cn.PodName
 
-	_, err := os.Stat(targetPath)
+	_, err := os.Stat(symlinkPath)
 
 	if err == nil {
 		return fmt.Errorf("Already exists")
 	} else if os.IsNotExist(err) {
-		err := os.Symlink(targetPath, symlinkPath)
+
+		targetFile, err := os.Create(symlinkPath)
+		if err != nil {
+			return err
+		}
+		defer targetFile.Close()
+
+		_, err = netns.NewNamed(symlinkPath)
+		if err != nil {
+			return err
+		}
+
+		err = os.Symlink(targetPath, symlinkPath)
 		if err != nil {
 			return err
 		}
 	} else {
-		fmt.Printf("Error checking path %s: %v\n", targetPath, err)
+		fmt.Printf("Error checking path %s: %v\n", symlinkPath, err)
 	}
 
 	fmt.Println("Symlink created:", symlinkPath)
